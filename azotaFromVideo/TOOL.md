@@ -9,10 +9,11 @@ Thư mục `scripts/` chứa bộ công cụ chuyên dụng được viết sẵ
 | Tên Script | Chức năng chính | Đầu vào chính | Đầu ra |
 | :--- | :--- | :--- | :--- |
 | **`cut_video.py`** | Cắt video theo mốc thời gian không giảm chất lượng (`-c copy`) | File video, mốc start/end | `video_cut.mp4` |
-| **`split_chunks.py`** | Chia video thành các đoạn vi mô $\le 5$s (chống AI quá tải & hallucination) | File video cắt | Thư mục `chunks/` (`chunk_001.mp4`,...) |
-| **`extract_questions.py`** | Quét slide trong từng chunk để lấy câu hỏi & đáp án | Thư mục `chunks/` | File `extracted_questions.json` |
+| **`extract_slides.py`** | **(V2.0)** Lấy mẫu 10 fps (0.1s/frame), lọc frame tĩnh & OCR khử trùng lặp $\ge 90\%$ | File video | Thư mục `slides/` (`slide_001.jpg`, `slides_index.json`) |
+| **`split_chunks.py`** | *(V1.0)* Chia video thành các đoạn vi mô $\le 5$s | File video cắt | Thư mục `chunks/` (`chunk_001.mp4`,...) |
+| **`extract_questions.py`** | *(V1.0)* Khung sườn quét slide trong từng chunk | Thư mục `chunks/` | File `extracted_questions.json` |
 | **`generate_word.py`** | Khử trùng lặp và xuất file Word chuẩn format (đáp án đúng màu đỏ) | File JSON câu hỏi | File Word `tong_hop_cau_hoi.docx` |
-| **`pipeline.py`** | Chạy liên hoàn quy trình từ A $\rightarrow$ Z chỉ với 1 câu lệnh | Video, mốc start/end | Chạy hoàn tất các bước trên |
+| **`pipeline.py`** | Chạy liên hoàn quy trình cắt & chia chunk | Video, mốc start/end | Chạy hoàn tất các bước chuẩn bị |
 
 ---
 
@@ -36,7 +37,25 @@ Thư mục `scripts/` chứa bộ công cụ chuyên dụng được viết sẵ
 
 ---
 
-### 🛠️ Tool 2: `split_chunks.py` (Chia Nhỏ Video $\le 5$s)
+### 🛠️ Tool 2: `extract_slides.py` *(V2.0 - Khuyên dùng)* (Trích Xuất Slide Duy Nhất 10 fps + OCR)
+* **Mô tả:** Lấy mẫu video ở **10 fps (0.1s/frame)**, lọc các frame đứng yên bằng sai khác pixel, sau đó chạy OCR cục bộ (`rapidocr` / `tesseract` / `winocr`) so sánh độ tương đồng văn bản (`>= 90%`) để gộp trùng và mặc định giữ frame cuối cùng của mỗi câu hỏi (bắt trọn đáp án vừa hiện).
+* **Cú pháp:**
+  ```bash
+  py scripts/extract_slides.py [-i input_video] [-o thư_mục_slides] [--fps 10.0] [--similarity 0.90]
+  ```
+* **Các tham số chính:**
+  * `-i, --input`: Đường dẫn video đầu vào (tự tìm nếu bỏ trống).
+  * `-o, --output-dir`: Thư mục lưu ảnh slide duy nhất (mặc định: `slides`).
+  * `--fps`: Tốc độ lấy mẫu frame/giây (mặc định: `10.0` = 0.1s/frame).
+  * `--similarity`: Ngưỡng giống nhau về chữ để gộp trùng (mặc định: `0.90`).
+  * `--pixel-diff`: Ngưỡng sai khác pixel lọc frame tĩnh (mặc định: `1.5`).
+  * `--ocr-backend`: `auto` | `rapidocr` | `tesseract` | `winocr` (mặc định: `auto`).
+  * `--keep-first`: Giữ frame đầu tiên thay vì frame cuối cùng trong mỗi nhóm câu hỏi.
+* **Đầu ra:** Thư mục `slides/` chứa `slide_001.jpg`, `slide_002.jpg`,... và file `slides/slides_index.json`.
+
+---
+
+### 🛠️ Tool 2b (Legacy V1.0): `split_chunks.py` (Chia Nhỏ Video $\le 5$s)
 * **Mô tả:** Ép keyframe cố định và cắt video thành các chunk nhỏ (tối đa 5 giây). Đây là bước mấu chốt giúp AI phân tích từng đoạn ngắn (1–5 câu hỏi), ngăn chặn hiện tượng quá tải bộ nhớ và hallucination.
 * **Cú pháp:**
   ```bash
@@ -82,6 +101,19 @@ Thư mục `scripts/` chứa bộ công cụ chuyên dụng được viết sẵ
 * **Các tham số:**
   * `-i, --input`: File JSON chứa danh sách câu hỏi (**Bắt buộc**).
   * `-o, --output`: Đường dẫn file Word cần xuất (mặc định: `tong_hop_cau_hoi.docx`).
+* **Định dạng JSON đầu vào (`extracted_questions.json`):**
+  ```json
+  [
+    {
+      "question": "Nội dung câu hỏi...",
+      "extra": "Ghi chú phụ nếu có",
+      "image": "_cropped_imgs/slide_005_crop.jpg",
+      "slides": [5],
+      "options": [["A", "..."], ["B", "..."], ["C", "..."], ["D", "..."]],
+      "correct": ["B"]
+    }
+  ]
+  ```
 * **Ví dụ:**
   ```bash
   py scripts/generate_word.py -i extracted_questions.json -o de_thi_chuan.docx
@@ -89,13 +121,14 @@ Thư mục `scripts/` chứa bộ công cụ chuyên dụng được viết sẵ
 
 ---
 
-### 🚀 Tool 5: `pipeline.py` (Chạy Toàn Bộ Quy Trình)
-* **Mô tả:** Tích hợp liên hoàn: Cắt video theo mốc thời gian $\rightarrow$ Chia chunk 5s $\rightarrow$ Tạo cấu trúc sẵn sàng cho Agent phân tích.
+### 🚀 Tool 5: `pipeline.py` (Chạy Toàn Bộ Quy Trình Chuẩn Bị V2.0)
+* **Mô tả:** Tích hợp liên hoàn: (Tùy chọn) Cắt video nếu có `-e` $\rightarrow$ Chạy `extract_slides.py` (10 fps + OCR lọc trùng $\ge 90\%$) tạo thư mục `slides/`.
 * **Cú pháp:**
   ```bash
-  py scripts/pipeline.py -s [bắt_đầu] -e [kết_thúc] [-i video]
+  py scripts/pipeline.py [-s bắt_đầu] [-e kết_thúc] [-i video] [-o slides]
   ```
 * **Ví dụ:**
   ```bash
+  py scripts/pipeline.py -i DBI_P2.mp4 -o slides
   py scripts/pipeline.py -s 00:00:00 -e 1p14 -i DBI_P2.mp4
   ```

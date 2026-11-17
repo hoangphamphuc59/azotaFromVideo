@@ -63,6 +63,19 @@ def export_to_word(questions: list, output_path: Path, title_text: str = "TỔNG
             r_extra.font.size = Pt(10.5)
             r_extra.font.color.rgb = RGBColor(100, 100, 100)
 
+        # 2b. Chèn hình ảnh minh họa nếu có ("image" hoặc "images")
+        img_paths = []
+        if q.get("image"):
+            img_paths.append(q["image"])
+        if isinstance(q.get("images"), list):
+            img_paths.extend(q["images"])
+        for img_rel in img_paths:
+            img_p = Path(img_rel)
+            if img_p.exists() and img_p.is_file():
+                p_img = doc.add_paragraph()
+                p_img.paragraph_format.space_after = Pt(4)
+                p_img.add_run().add_picture(str(img_p), width=Inches(5.5))
+
         # 3. Các đáp án lựa chọn
         options = q.get("options", [])
         correct_list = [c.upper().strip() for c in q.get("correct", [])]
