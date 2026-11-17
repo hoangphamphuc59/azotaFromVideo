@@ -41,15 +41,27 @@ flowchart TD
 
 ---
 
-### Bước 1: Kiểm tra Video & Cắt đoạn thời gian (Nếu có yêu cầu)
-1. **Xác định video đầu vào (chỉ quét ở thư mục gốc của dự án):**
+### Bước 1: Kiểm tra An toàn Môi trường & Xác định Video (Bắt buộc trước khi chạy bất kỳ tool nào)
+> **Mục đích:** Đảm bảo lần chạy mới chính xác tuyệt đối, không bị lẫn dữ liệu cũ/khác và **không bao giờ tự ý xóa hay ghi đè dữ liệu của người dùng khi chưa được phép**.
+
+1. **Kiểm tra xung đột dữ liệu cũ / file tạm trước khi chạy:**
+   - Quét thư mục gốc dự án để kiểm tra xem có tồn tại bất kỳ **file hoặc thư mục trung gian / kết quả** nào do tool hoặc Agent tạo ra từ trước hay không (áp dụng cho mọi định dạng video `.mp4`, `.mkv`, `.avi`, `.mov`, `.webm`,..., không cố định riêng `.mp4`):
+     - **Thư mục:** `slides/`, `_tmp_frames/`, `_cropped_imgs/`, `chunks/`, `word_chunks/`.
+     - **File:** `video_cut.*`, `*_cut.*` (ví dụ `DBI_P2_cut.mkv`, `video_cut.mp4`...), `extracted_questions.json`, `tong_hop_cau_hoi.docx` (hoặc file `.docx` đầu ra dự kiến).
+   - **Xử lý khi phát hiện tồn tại:**
+     - **Mặc định (user KHÔNG yêu cầu xóa trước):** **DỪNG LẠI NGAY, không chạy bất kỳ tool nào**, liệt kê cụ thể các file/thư mục đang tồn tại và thông báo cho user để họ tự xóa hoặc xác nhận cho phép xóa/ghi đè.
+     - **Nếu user CÓ yêu cầu xóa trước khi chạy** (ví dụ: *"xóa dữ liệu cũ rồi chạy lại"*, *"ghi đè kết quả cũ"*): lúc đó mới xóa sạch các file/thư mục trùng nói trên rồi tiếp tục.
+   - *Ví dụ minh họa:* Nếu trong thư mục đang có sẵn `slides/` từ video hôm qua hoặc `tong_hop_cau_hoi.docx` cũ, việc chạy đè sẽ làm trộn slide cũ với mới hoặc làm mất file Word cũ của user $\rightarrow$ bắt buộc phải dừng và hỏi user trước.
+
+2. **Xác định video đầu vào (chỉ quét ở thư mục gốc của dự án):**
    - Video bắt buộc phải nằm **ngoài cùng của thư mục dự án** (thư mục làm việc hiện tại), **không** nằm bên ngoài dự án và **không** nằm trong các thư mục con.
+   - Hỗ trợ mọi định dạng video phổ biến (`.mp4`, `.mkv`, `.avi`, `.mov`, `.webm`, `.flv`, `.wmv`, `.m4v`), không cố định riêng `.mp4`.
    - Nếu người dùng chỉ định tên video: kiểm tra xem file đó có tồn tại ngay tại thư mục gốc dự án không; nếu không thấy $\rightarrow$ dừng lại và nhắc người dùng đặt video đúng vào thư mục gốc dự án.
-   - Nếu người dùng **không** chỉ định tên video: chỉ quét các file video (`.mp4`, `.mkv`, `.avi`, `.mov`, `.webm`) ngay tại **thư mục gốc dự án** (không quét đệ quy vào thư mục con):
+   - Nếu người dùng **không** chỉ định tên video: chỉ quét các file video ngay tại **thư mục gốc dự án** (không quét đệ quy vào thư mục con):
      - **Chỉ có đúng 1 file video:** tự động dùng file đó.
      - **Có từ 2 file video trở lên:** **DỪNG LẠI NGAY, không chạy bất kỳ tool nào** và yêu cầu người dùng gọi lại skill kèm **tên đầy đủ của video** cần xử lý hoặc xóa bớt các video dư thừa trong thư mục.
      - **Không có file video nào ở thư mục gốc:** **DỪNG LẠI NGAY, không chạy bất kỳ tool nào** và nhắc người dùng đặt file video vào **ngoài cùng của thư mục dự án** (không để bên ngoài dự án hay trong thư mục con), sau đó gọi lại skill.
-2. **Cắt đoạn (chỉ chạy khi người dùng chỉ định khoảng thời gian):**
+3. **Cắt đoạn (chỉ chạy khi người dùng chỉ định khoảng thời gian):**
    ```bash
    py scripts/cut_video.py -s [start] -e [end] -i [input] -o video_cut.mp4
    ```
