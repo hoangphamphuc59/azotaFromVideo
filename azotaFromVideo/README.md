@@ -1,4 +1,4 @@
-# 🎓 azotaFromVideo (V2.0) — Trích Xuất Đề Thi Trắc Nghiệm Từ Video Bài Giảng
+# 🎓 azotaFromVideo (V2.1) — Trích Xuất Đề Thi Trắc Nghiệm Từ Video Bài Giảng
 
 > **Skill thông minh dành cho AI Agent (Antigravity):** Tự động trích xuất đề trắc nghiệm, hình ảnh minh họa, bảng biểu và đáp án từ video bài giảng bằng phương pháp **lấy mẫu 10 fps + lọc trùng OCR cục bộ ($\ge 90\%$)** — tiết kiệm 80–95% token AI, loại bỏ hoàn toàn quá tải ngữ cảnh và hallucination, tự động xuất file Word chuẩn format và dọn dẹp sạch sẽ.
 
@@ -45,25 +45,25 @@ py -m pip install imageio-ffmpeg python-docx pillow numpy rapidfuzz
 
 ---
 
-## 🌟 Điểm Nổi Bật & Tính Năng Vượt Trội (V2.0)
+## 🌟 Điểm Nổi Bật & Tính Năng Vượt Trội (V2.1)
 
 - ⚡ **Cắt video siêu tốc (Lossless):** Sử dụng FFmpeg stream copy (`-c copy`) khi cần cắt theo mốc thời gian, bảo toàn 100% độ sắc nét của chữ và hình ảnh trên slide.
-- 🎯 **Lấy mẫu 10 fps (0.1s/frame) & Lọc trùng OCR $\ge 90\%$ cục bộ (0 tốn token AI):**
+- 🎯 **Lấy mẫu 10 fps (0.1s/frame) & Lọc lưới `4×4` đa luồng (`256×144`) + OCR $\ge 90\%$ (0 tốn token AI):**
   - Tự động quét video ở tốc độ 10 fps để không bỏ sót câu hỏi lướt nhanh (0.5–1s).
-  - Lọc frame tĩnh siêu nhanh bằng pixel-diff rồi chạy OCR cục bộ so sánh độ giống nhau của chữ ($\ge 90\%$ thì gộp, mặc định **giữ frame cuối cùng** để bắt trọn trạng thái đã hiện đáp án).
-  - Không lọc bỏ các câu hỏi ngắn (câu cho điểm).
+  - Chia ảnh `256×144` thành lưới `4×4` (16 vùng) và chạy **song song trên `2/3` số luồng CPU** (tự động gộp điểm nối giữa các luồng): vừa bắt trọn câu hỏi ngắn trên nền trắng chữ đen, vừa ít bị nhiễu bởi con trỏ chuột di chuyển.
+  - Chạy OCR cục bộ so sánh độ giống nhau của chữ ($\ge 90\%$ thì gộp, mặc định **giữ frame cuối cùng** để bắt trọn trạng thái đã hiện đáp án), không lọc bỏ câu hỏi ngắn.
 - 🧠 **Agent đọc ảnh theo lô (5–10 ảnh/lần):** Thay vì phải xem hàng trăm video chunk, Agent chỉ đọc các ảnh slide duy nhất đã lọc sạch $\rightarrow$ vừa giảm mạnh chi phí token, vừa giữ nguyên độ chính xác Vision.
-- 🖼️ **Bóc tách ghi chú, Speaker Notes & hình ảnh minh họa:** Nhận diện cả đáp án đánh dấu trên slide chính lẫn vùng **Speaker Notes** phía dưới, đồng thời giữ đầy đủ hình ảnh minh họa / sơ đồ / bảng biểu.
+- 🖼️ **Bóc tách ghi chú, Speaker Notes & hình ảnh minh họa:** Nhận diện cả đáp án đánh dấu trên slide chính (tô màu, in đậm, đánh sao `*`, gạch chân...) lẫn vùng **Speaker Notes** phía dưới, ưu tiên tuyệt đối đáp án của giáo viên, và mặc định 1 đáp án (trừ khi đề/GV/user yêu cầu chọn nhiều).
 - 🧹 **Khử trùng lặp toàn cục & Dọn dẹp gọn gàng:** Xuất một file `tong_hop_cau_hoi.docx` duy nhất (đáp án đúng tô **màu đỏ** và **in đậm**), tự động xóa mọi file tạm, chỉ giữ lại `slides/` và `tong_hop_cau_hoi.docx`.
 
 ---
 
-## 🔄 Quy Trình Xử Lý Chuẩn 5 Bước (V2.0)
+## 🔄 Quy Trình Xử Lý Chuẩn 5 Bước (V2.1)
 
 ```mermaid
 flowchart TD
-    A["🎥 Video bài giảng (+ Khoảng thời gian nếu có)"] --> B["1. Kiểm tra video & Cắt đoạn (nếu có mốc thời gian)"]
-    B --> C["2. Chạy extract_slides.py (10 fps + OCR lọc trùng >= 90%)<br>-> Thư mục slides/ (slide_001.jpg, ...)"]
+    A["🎥 Video bài giảng (+ Khoảng thời gian / Ghi chú)"] --> B["1. Kiểm tra video ở thư mục gốc & Cắt đoạn (nếu có mốc thời gian)"]
+    B --> C["2. Chạy extract_slides.py (10 fps + lưới 4x4 đa luồng + OCR >= 90%)<br>-> Thư mục slides/ (slide_001.jpg, ...)"]
     C --> D["3. Agent đọc ảnh trong slides/ theo lô (5–10 ảnh/lần)<br>-> Xuất dữ liệu vào extracted_questions.json"]
     D --> E["4. Chạy generate_word.py khử trùng lặp toàn cục<br>-> tong_hop_cau_hoi.docx"]
     E --> F["5. Dọn dẹp file tạm<br>(Chỉ giữ lại thư mục slides/ và tong_hop_cau_hoi.docx)"]
@@ -100,7 +100,7 @@ py scripts/extract_slides.py -i DBI_P2.mp4 -o slides
 # 3. Xuất file Word từ JSON câu hỏi (tự động khử trùng lặp & tô đỏ đáp án đúng)
 py scripts/generate_word.py -i extracted_questions.json -o tong_hop_cau_hoi.docx
 ```
-*(Xem hướng dẫn chi tiết các tham số tại [TOOL.md](TOOL.md))*
+*(Xem hướng dẫn chi tiết các tham số tại [TOOL.md](file:///C:/Users/Hoang%20Phuc/Desktop/azotaFromVideo/azotaFromVideo/TOOL.md))*
 
 ---
 
@@ -150,7 +150,7 @@ azotaFromVideo/
 ├── TOOL.md             # Sổ tay chi tiết hướng dẫn các script dòng lệnh
 └── scripts/            # Bộ mã nguồn thực thi
     ├── cut_video.py         # Cắt video siêu tốc không suy giảm chất lượng (Lossless)
-    ├── extract_slides.py    # (V2.0) Lấy mẫu 10 fps + lọc pixel + OCR khử trùng >= 90%
+    ├── extract_slides.py    # (V2.1) 10 fps + lưới 4x4 đa luồng (256x144) + OCR >= 90%
     ├── generate_word.py     # Lọc trùng lặp toàn cục & xuất file Word chuẩn màu đáp án
     ├── split_chunks.py      # (V1.0 - legacy) Chia nhỏ video thành chunk <= 5s
     ├── extract_questions.py # (V1.0 - legacy) Khung sườn quét slide theo chunk

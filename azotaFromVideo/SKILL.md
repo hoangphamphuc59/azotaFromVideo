@@ -1,13 +1,14 @@
 ---
 name: azotaFromVideo
 description: >-
-  Tự động trích xuất đề thi trắc nghiệm từ video bài giảng (V2.0): dùng tool Python cục bộ
-  lấy mẫu 10 fps (0.1s/frame) kết hợp OCR lọc trùng (>= 90%) để nén video thành các ảnh
-  slide duy nhất, sau đó Agent đọc ảnh theo lô và xuất ra MỘT file Word chuẩn format
-  (đáp án đúng tô màu đỏ, in đậm). Tiết kiệm tối đa token và chống hallucination.
+  Tự động trích xuất đề thi trắc nghiệm từ video bài giảng (V2.1): dùng tool Python cục bộ
+  lấy mẫu 10 fps (0.1s/frame), lọc tĩnh song song đa luồng (256x144, lưới 4x4) kết hợp OCR
+  lọc trùng (>= 90%) để nén video thành các ảnh slide duy nhất, sau đó Agent đọc ảnh theo lô
+  và xuất ra MỘT file Word chuẩn format (đáp án đúng tô màu đỏ, in đậm). Tiết kiệm tối đa
+  token và chống hallucination.
 ---
 
-# Skill: azotaFromVideo (V2.0)
+# Skill: azotaFromVideo (V2.1)
 
 Skill này xử lý video trình chiếu câu hỏi trắc nghiệm (Google Slides, PowerPoint, PDF...) theo kiến trúc **Lọc cục bộ trước – AI đọc ảnh sau**:
 - **Tool Python** lo toàn bộ việc lấy mẫu 0.1s/frame, lọc khung hình tĩnh và khử trùng lặp text $\ge 90\%$.
@@ -27,12 +28,12 @@ Skill này xử lý video trình chiếu câu hỏi trắc nghiệm (Google Slid
 
 ---
 
-## Quy trình xử lý chuẩn 5 bước (V2.0)
+## Quy trình xử lý chuẩn 5 bước (V2.1)
 
 ```mermaid
 flowchart TD
     A["Video gốc (+ Khoảng thời gian nếu có)"] --> B["Bước 1: Kiểm tra video đầu vào & Cắt đoạn nếu có mốc thời gian"]
-    B --> C["Bước 2: Chạy extract_slides.py (10 fps + OCR lọc trùng >= 90%)<br>-> Thư mục slides/ (slide_001.jpg, ...)"]
+    B --> C["Bước 2: Chạy extract_slides.py (10 fps + lưới 4x4 đa luồng + OCR >= 90%)<br>-> Thư mục slides/ (slide_001.jpg, ...)"]
     C --> D["Bước 3: Agent đọc ảnh trong slides/ theo lô (5–10 ảnh/lần)<br>-> Xuất dữ liệu vào extracted_questions.json"]
     D --> E["Bước 4: Chạy generate_word.py khử trùng lặp toàn cục<br>-> Xuất MỘT file Word: tong_hop_cau_hoi.docx"]
     E --> F["Bước 5: Dọn dẹp file tạm<br>(Chỉ giữ lại thư mục slides/ và file tong_hop_cau_hoi.docx)"]
@@ -57,7 +58,7 @@ flowchart TD
 ---
 
 ### Bước 2: Trích xuất ảnh slide duy nhất bằng Tool cục bộ (Không tốn token AI)
-Chạy tool `extract_slides.py` để lấy mẫu ở **10 fps (0.1s/frame)**, lọc frame đứng yên và gộp các frame trùng nội dung chữ $\ge 90\%$ (ưu tiên giữ frame cuối để bắt trọn trạng thái đã hiện đáp án):
+Chạy tool `extract_slides.py` để lấy mẫu ở **10 fps (0.1s/frame)**, lọc frame đứng yên song song trên `2/3` số luồng CPU (ảnh `256x144`, chia lưới `4x4` chống bỏ sót chữ ngắn trên nền trắng + gộp điểm nối giữa các luồng) và gộp các frame trùng nội dung chữ $\ge 90\%$ (ưu tiên giữ frame cuối để bắt trọn trạng thái đã hiện đáp án):
 ```bash
 py scripts/extract_slides.py -i [video_input] -o slides
 ```

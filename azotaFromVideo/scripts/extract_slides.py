@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from shutil import which
 
@@ -97,42 +98,135 @@ def sample_frames_ffmpeg(video_path: Path, temp_dir: Path, fps: float = 10.0) ->
     return frames
 
 
-def frame_signature(img_path: Path, size: tuple[int, int] = (128, 72)) -> np.ndarray:
-    """Tạo vector chữ ký ảnh xám thu nhỏ để so sánh sai khác pixel siêu nhanh."""
+def frame_signature(img_path: Path, size: tuple[int, int] = (256, 144)) -> np.ndarray:
+    """Tạo vector chữ ký ảnh xám 256x144 để so sánh sai khác theo từng vùng."""
     with Image.open(img_path) as im:
         gray = im.convert("L").resize(size, Image.Resampling.BILINEAR)
         return np.asarray(gray, dtype=np.float32)
 
 
-def prefilter_visual_segments(frames: list[Path], pixel_diff_threshold: float = 1.5, keep_first: bool = False) -> list[tuple[int, Path]]:
+def max_region_diff(sig1: np.ndarray, sig2: np.ndarray, grid: tuple[int, int] = (4, 4)) -> float:
     """
-    Tầng lọc 1 (Siêu nhanh): Gom các frame liên tiếp giống hệt nhau về mặt hình ảnh.
-    Trả về danh sách (frame_index_1based, frame_path) đại diện cho từng đoạn ổn định.
+    Chia ảnh 256x144 thành lưới 4x4 (16 vùng, mỗi vùng 64x36 px)
+    và trả về độ sai khác trung bình lớn nhất trong 16 vùng.
+    Chỉ cần 1 vùng thay đổi đủ ngưỡng là nhận diện được ngay.
+    """
+    h, w = sig1.shape
+    rows, cols = grid
+    diff = np.abs(sig1 - sig2).reshape(rows, h // rows, cols, w // cols).mean(axis=(1, 3))
+    return float(diff.max())
+
+
+def _segment_slice(
+    indexed_frames: list[tuple[int, Path]],
+    pixel_diff_threshold: float,
+    keep_first: bool,
+) -> list[dict]:
+    """Xử lý gom các frame đứng yên trong 1 phân đoạn của một luồng."""
+    if not indexed_frames:
+        return []
+
+    segments = []
+    first_idx, first_path = indexed_frames[0]
+    first_sig = frame_signature(first_path)
+
+    seg_start_idx = first_idx
+    seg_start_path = first_path
+    seg_start_sig = first_sig
+    seg_end_idx = first_idx
+    seg_end_path = first_path
+    prev_sig = first_sig
+
+    for frame_idx, frame_path in indexed_frames[1:]:
+        curr_sig = frame_signature(frame_path)
+        diff = max_region_diff(curr_sig, prev_sig)
+        if diff <= pixel_diff_threshold:
+            seg_end_idx = frame_idx
+            seg_end_path = frame_path
+        else:
+            rep_idx, rep_path = (seg_start_idx, seg_start_path) if keep_first else (seg_end_idx, seg_end_path)
+            segments.append({
+                "rep_idx": rep_idx,
+                "rep_path": rep_path,
+                "first_sig": seg_start_sig,
+                "last_sig": prev_sig,
+            })
+            seg_start_idx = frame_idx
+            seg_start_path = frame_path
+            seg_start_sig = curr_sig
+            seg_end_idx = frame_idx
+            seg_end_path = frame_path
+            prev_sig = curr_sig
+
+    rep_idx, rep_path = (seg_start_idx, seg_start_path) if keep_first else (seg_end_idx, seg_end_path)
+    segments.append({
+        "rep_idx": rep_idx,
+        "rep_path": rep_path,
+        "first_sig": seg_start_sig,
+        "last_sig": prev_sig,
+    })
+    return segments
+
+
+def prefilter_visual_segments(
+    frames: list[Path],
+    pixel_diff_threshold: float = 2.0,
+    keep_first: bool = False,
+    workers: int = 0,
+) -> list[tuple[int, Path]]:
+    """
+    Tầng lọc 1 (Song song đa luồng + so sánh lưới 4x4 trên 256x144):
+    - Chia đều frame cho 2/3 số luồng CPU (mặc định) để xử lý song song.
+    - Kiểm tra và gộp các điểm nối giữa các luồng (xóa frame cuối của luồng trước
+      nếu trùng với frame đầu của luồng sau).
     """
     if not frames:
         return []
 
-    candidates = []
-    seg_start_idx = 0
-    seg_end_idx = 0
-    prev_sig = frame_signature(frames[0])
+    cpu_cnt = os.cpu_count() or 2
+    if workers <= 0:
+        workers = max(1, (cpu_cnt * 2) // 3)
+    workers = min(workers, max(1, len(frames) // 10))
 
-    for i in range(1, len(frames)):
-        curr_sig = frame_signature(frames[i])
-        diff = float(np.mean(np.abs(curr_sig - prev_sig)))
-        if diff <= pixel_diff_threshold:
-            seg_end_idx = i
-        else:
-            chosen_idx = seg_start_idx if keep_first else seg_end_idx
-            candidates.append((chosen_idx + 1, frames[chosen_idx]))
-            seg_start_idx = i
-            seg_end_idx = i
-            prev_sig = curr_sig
+    indexed = [(i + 1, p) for i, p in enumerate(frames)]
 
-    # Đóng đoạn cuối cùng
-    chosen_idx = seg_start_idx if keep_first else seg_end_idx
-    candidates.append((chosen_idx + 1, frames[chosen_idx]))
+    if workers <= 1:
+        merged_segments = _segment_slice(indexed, pixel_diff_threshold, keep_first)
+    else:
+        print(f"⚙️  Đang lọc hình ảnh (256x144, lưới 4x4) song song trên {workers}/{cpu_cnt} luồng CPU...")
+        chunk_size = (len(indexed) + workers - 1) // workers
+        slices = [indexed[i : i + chunk_size] for i in range(0, len(indexed), chunk_size)]
 
+        with ThreadPoolExecutor(max_workers=len(slices)) as executor:
+            slice_results = list(
+                executor.map(
+                    lambda s: _segment_slice(s, pixel_diff_threshold, keep_first),
+                    slices,
+                )
+            )
+
+        # Kiểm tra và gộp điểm nối giữa các luồng
+        merged_segments = []
+        for seg_list in slice_results:
+            if not seg_list:
+                continue
+            if not merged_segments:
+                merged_segments.extend(seg_list)
+                continue
+
+            prev_seg = merged_segments[-1]
+            next_first = seg_list[0]
+            if max_region_diff(prev_seg["last_sig"], next_first["first_sig"]) <= pixel_diff_threshold:
+                # Điểm nối giống nhau: mặc định xóa frame đại diện cuối của luồng trước, giữ của luồng sau
+                if not keep_first:
+                    prev_seg["rep_idx"] = next_first["rep_idx"]
+                    prev_seg["rep_path"] = next_first["rep_path"]
+                prev_seg["last_sig"] = next_first["last_sig"]
+                merged_segments.extend(seg_list[1:])
+            else:
+                merged_segments.extend(seg_list)
+
+    candidates = [(s["rep_idx"], s["rep_path"]) for s in merged_segments]
     print(f"⚡ Tầng lọc hình ảnh: {len(frames)} frame -> còn {len(candidates)} frame ứng viên có biến đổi.")
     return candidates
 
@@ -377,7 +471,8 @@ def main():
     parser.add_argument("-o", "--output-dir", help="Thư mục lưu ảnh slide duy nhất (mặc định: slides)", default="slides")
     parser.add_argument("--fps", type=float, default=10.0, help="Tốc độ lấy mẫu frame/giây (mặc định: 10.0 = 0.1s/frame)")
     parser.add_argument("--similarity", type=float, default=0.90, help="Ngưỡng giống nhau về chữ để gộp trùng (mặc định: 0.90)")
-    parser.add_argument("--pixel-diff", type=float, default=1.5, help="Ngưỡng sai khác pixel để lọc frame tĩnh (mặc định: 1.5)")
+    parser.add_argument("--pixel-diff", type=float, default=2.0, help="Ngưỡng sai khác trung bình theo vùng 4x4 để lọc frame tĩnh (mặc định: 2.0)")
+    parser.add_argument("--workers", type=int, default=0, help="Số luồng xử lý song song (mặc định: 0 = tự động dùng 2/3 số luồng CPU)")
     parser.add_argument("--ocr-backend", choices=["auto", "rapidocr", "tesseract", "winocr"], default="auto", help="OCR engine (mặc định: auto)")
     parser.add_argument("--keep-first", action="store_true", help="Giữ frame đầu tiên thay vì frame cuối cùng trong mỗi nhóm câu hỏi")
     parser.add_argument("--keep-temp", action="store_true", help="Giữ lại thư mục frame tạm để debug")
@@ -412,6 +507,7 @@ def main():
             frames,
             pixel_diff_threshold=args.pixel_diff,
             keep_first=args.keep_first,
+            workers=args.workers,
         )
 
         backend = detect_ocr_backend(args.ocr_backend)

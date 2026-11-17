@@ -48,7 +48,8 @@ Thư mục `scripts/` chứa bộ công cụ chuyên dụng được viết sẵ
   * `-o, --output-dir`: Thư mục lưu ảnh slide duy nhất (mặc định: `slides`).
   * `--fps`: Tốc độ lấy mẫu frame/giây (mặc định: `10.0` = 0.1s/frame).
   * `--similarity`: Ngưỡng giống nhau về chữ để gộp trùng (mặc định: `0.90`).
-  * `--pixel-diff`: Ngưỡng sai khác pixel lọc frame tĩnh (mặc định: `1.5`).
+  * `--pixel-diff`: Ngưỡng sai khác trung bình theo lưới `4x4` trên `256x144` (mặc định: `2.0`).
+  * `--workers`: Số luồng CPU chạy song song (mặc định: `0` = tự động dùng `2/3` số luồng CPU).
   * `--ocr-backend`: `auto` | `rapidocr` | `tesseract` | `winocr` (mặc định: `auto`).
   * `--keep-first`: Giữ frame đầu tiên thay vì frame cuối cùng trong mỗi nhóm câu hỏi.
 * **Đầu ra:** Thư mục `slides/` chứa `slide_001.jpg`, `slide_002.jpg`,... và file `slides/slides_index.json`.
